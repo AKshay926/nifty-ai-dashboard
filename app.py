@@ -1,125 +1,121 @@
 import streamlit as st
 import time
-import plotly.express as px
+import plotly.graph_objects as go
+import datetime
 
 from services.price_service import get_price_data
 from core.strategy import generate_signals
 from utils.helpers import format_price
 
 # ===== PAGE CONFIG =====
-st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
+st.set_page_config(page_title="AI Market Pro", layout="wide")
 
-# ===== CUSTOM CSS (COMPACT UI) =====
+# ===== PREMIUM UI =====
 st.markdown("""
 <style>
-html, body, [class*="css"]  {
-    font-size: 14px;
-}
-
-h1 {
-    font-size: 24px !important;
-}
-
-h2 {
-    font-size: 18px !important;
-}
-
-[data-testid="stMetricValue"] {
-    font-size: 18px;
-}
-
-[data-testid="stMetricLabel"] {
-    font-size: 12px;
-}
-
-.block-container {
-    padding-top: 1rem;
-    padding-bottom: 1rem;
-}
+body {background-color: #0e1117; color: white;}
+h1 {font-size: 26px !important;}
+[data-testid="stMetricValue"] {font-size: 18px;}
+.green {color: #00ff9f; font-weight: bold;}
+.red {color: #ff4b4b; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
-# ===== TITLE =====
-st.title("📊 AI Market Analyzer")
+st.title("🚀 AI Market Dashboard")
 
-# ===== CATEGORY =====
-category = st.selectbox("Select Category", ["Index", "Stocks"])
+# ===== SYMBOL MAP =====
+symbols = {
+    "NIFTY": "^NSEI",
+    "BANKNIFTY": "^NSEBANK",
+    "SENSEX": "^BSESN",
+    "RELIANCE": "RELIANCE.NS",
+    "TCS": "TCS.NS",
+    "INFY": "INFY.NS",
+    "HDFCBANK": "HDFCBANK.NS"
+}
 
-# ===== DATA MAP =====
-if category == "Index":
-    symbols = {
-        "NIFTY 50": "^NSEI",
-        "BANK NIFTY": "^NSEBANK",
-        "SENSEX": "^BSESN",
-        "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
-        "MIDCAP NIFTY": "NIFTY_MIDCAP_100.NS"
-    }
-else:
-    symbols = {
-        "RELIANCE": "RELIANCE.NS",
-        "TCS": "TCS.NS",
-        "INFY": "INFY.NS",
-        "HDFCBANK": "HDFCBANK.NS",
-        "SBIN": "SBIN.NS",
-        "ICICIBANK": "ICICIBANK.NS"
-    }
+# ===== WATCHLIST =====
+watchlist = st.sidebar.multiselect(
+    "📌 Watchlist",
+    list(symbols.keys()),
+    default=["NIFTY", "BANKNIFTY"]
+)
 
-# ===== INPUT =====
-col1, col2 = st.columns(2)
-
-with col1:
-    selected = st.selectbox("Select", list(symbols.keys()))
-
-with col2:
-    manual_input = st.text_input("Or Enter Symbol (e.g., LT.NS, AXISBANK.NS)")
-
-symbol = manual_input if manual_input else symbols[selected]
-
-st.write(f"📌 Selected Symbol: **{symbol}**")
+# ===== MAIN STOCK =====
+selected = st.selectbox("Select Main Chart", list(symbols.keys()))
+symbol = symbols[selected]
 
 # ===== AUTO REFRESH =====
 auto_refresh = st.sidebar.checkbox("Auto Refresh (5 sec)")
 
-# ===== FETCH DATA =====
-df = get_price_data(symbol)
+# ===== LOAD DATA =====
+with st.spinner("Fetching data..."):
+    df = get_price_data(symbol)
 
 if df is None:
-    st.error("❌ Failed to load data (check symbol or market closed)")
+    st.error("❌ Failed to load data")
 else:
     result = generate_signals(df)
 
-    if result:
-        # ===== METRICS =====
-        m1, m2, m3, m4, m5 = st.columns(5)
+    # ===== METRICS =====
+    c1, c2, c3, c4 = st.columns(4)
 
-        m1.metric("Price", format_price(result["price"]))
-        m2.metric("Trend", result["trend"])
-        m3.metric("Signal", result["signal"])
-        m4.metric("RSI", result["rsi"])
-        m5.metric("Breakout", result["breakout"])
+    signal_color = "green" if "BUY" in result["signal"] else "red"
 
-        # ===== SUPPORT / RESISTANCE =====
-        st.subheader("📍 Key Levels")
+    c1.metric("Price", format_price(result["price"]))
+    c2.metric("Trend", result["trend"])
+    c3.markdown(f"<div class='{signal_color}'>Signal: {result['signal']}</div>", unsafe_allow_html=True)
+    c4.metric("RSI", result["rsi"])
 
-        s1, s2 = st.columns(2)
-        s1.metric("Support", result["support"])
-        s2.metric("Resistance", result["resistance"])
+    # ===== ALERT =====
+    if result["signal"] == "BUY 🚀":
+        st.success("🚀 BUY Signal Triggered!")
+    elif result["signal"] == "SELL 🔻":
+        st.error("🔻 SELL Signal Triggered!")
 
-        # ===== CHART =====
-        st.subheader("📈 Price Chart")
+    # ===== CHART =====
+    st.subheader("📈 Price Chart")
 
-        fig = px.line(
-            result["df"],
-            x="Time",
-            y="Price",
-            title=f"{symbol} Price Movement"
-        )
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=result["df"]["Time"],
+        y=result["df"]["Price"],
+        mode='lines',
+        name=selected
+    ))
 
-        st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch")
 
-        # ===== DATA =====
-        st.subheader("📋 Latest Data")
-        st.dataframe(result["df"].tail(50), width="stretch")
+    # ===== COMPARISON =====
+    st.subheader("📊 Comparison View")
+
+    comp_fig = go.Figure()
+
+    for item in watchlist:
+        d = get_price_data(symbols[item])
+        if d is not None:
+            comp_fig.add_trace(go.Scatter(
+                x=d["Time"],
+                y=d["Price"],
+                mode='lines',
+                name=item
+            ))
+
+    st.plotly_chart(comp_fig, width="stretch")
+
+    # ===== WATCHLIST SUMMARY =====
+    st.subheader("📋 Watchlist Signals")
+
+    for item in watchlist:
+        d = get_price_data(symbols[item])
+        if d is not None:
+            r = generate_signals(d)
+
+            color = "🟢" if "BUY" in r["signal"] else "🔴"
+            st.write(f"{color} {item} → {r['signal']} | RSI: {r['rsi']}")
+
+    # ===== TIME =====
+    st.caption(f"Last Updated: {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 # ===== AUTO REFRESH =====
 if auto_refresh:
