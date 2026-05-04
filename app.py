@@ -28,11 +28,37 @@ symbols = {
     "NIFTY": "^NSEI",
     "BANKNIFTY": "^NSEBANK",
     "SENSEX": "^BSESN",
+    "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
     "RELIANCE": "RELIANCE.NS",
     "TCS": "TCS.NS",
     "INFY": "INFY.NS",
-    "HDFCBANK": "HDFCBANK.NS"
+    "HDFCBANK": "HDFCBANK.NS",
+    "SBIN": "SBIN.NS"
 }
+
+# ===== SEARCH BAR =====
+st.subheader("🔍 Search Stock / Index")
+
+colA, colB = st.columns(2)
+
+with colA:
+    search_input = st.text_input(
+        "Type symbol (e.g., RELIANCE, TCS.NS, ^NSEI, ^BSESN)"
+    )
+
+with colB:
+    selected = st.selectbox("Or Select", list(symbols.keys()))
+
+# ===== SYMBOL LOGIC =====
+if search_input:
+    if "." not in search_input and not search_input.startswith("^"):
+        symbol = search_input.upper() + ".NS"
+    else:
+        symbol = search_input.upper()
+else:
+    symbol = symbols[selected]
+
+st.write(f"📌 Selected Symbol: **{symbol}**")
 
 # ===== WATCHLIST =====
 watchlist = st.sidebar.multiselect(
@@ -41,16 +67,20 @@ watchlist = st.sidebar.multiselect(
     default=["NIFTY", "BANKNIFTY"]
 )
 
-# ===== MAIN STOCK =====
-selected = st.selectbox("Select Main Chart", list(symbols.keys()))
-symbol = symbols[selected]
-
 # ===== AUTO REFRESH =====
 auto_refresh = st.sidebar.checkbox("Auto Refresh (5 sec)")
 
-# ===== LOAD DATA =====
-with st.spinner("Fetching data..."):
-    df = get_price_data(symbol)
+# ===== DATA CACHE (avoid multiple API calls) =====
+data_cache = {}
+
+def get_cached(symbol):
+    if symbol not in data_cache:
+        data_cache[symbol] = get_price_data(symbol)
+    return data_cache[symbol]
+
+# ===== MAIN DATA =====
+with st.spinner("Loading market data..."):
+    df = get_cached(symbol)
 
 if df is None:
     st.error("❌ Failed to load data")
@@ -64,16 +94,19 @@ else:
 
     c1.metric("Price", format_price(result["price"]))
     c2.metric("Trend", result["trend"])
-    c3.markdown(f"<div class='{signal_color}'>Signal: {result['signal']}</div>", unsafe_allow_html=True)
+    c3.markdown(
+        f"<div class='{signal_color}'>Signal: {result['signal']}</div>",
+        unsafe_allow_html=True
+    )
     c4.metric("RSI", result["rsi"])
 
-    # ===== ALERT =====
+    # ===== ALERTS =====
     if result["signal"] == "BUY 🚀":
         st.success("🚀 BUY Signal Triggered!")
     elif result["signal"] == "SELL 🔻":
         st.error("🔻 SELL Signal Triggered!")
 
-    # ===== CHART =====
+    # ===== MAIN CHART =====
     st.subheader("📈 Price Chart")
 
     fig = go.Figure()
@@ -81,7 +114,7 @@ else:
         x=result["df"]["Time"],
         y=result["df"]["Price"],
         mode='lines',
-        name=selected
+        name=symbol
     ))
 
     st.plotly_chart(fig, width="stretch")
@@ -92,7 +125,9 @@ else:
     comp_fig = go.Figure()
 
     for item in watchlist:
-        d = get_price_data(symbols[item])
+        sym = symbols[item]
+        d = get_cached(sym)
+
         if d is not None:
             comp_fig.add_trace(go.Scatter(
                 x=d["Time"],
@@ -103,18 +138,19 @@ else:
 
     st.plotly_chart(comp_fig, width="stretch")
 
-    # ===== WATCHLIST SUMMARY =====
+    # ===== WATCHLIST SIGNALS =====
     st.subheader("📋 Watchlist Signals")
 
     for item in watchlist:
-        d = get_price_data(symbols[item])
+        sym = symbols[item]
+        d = get_cached(sym)
+
         if d is not None:
             r = generate_signals(d)
-
             color = "🟢" if "BUY" in r["signal"] else "🔴"
             st.write(f"{color} {item} → {r['signal']} | RSI: {r['rsi']}")
 
-    # ===== TIME =====
+    # ===== LAST UPDATED =====
     st.caption(f"Last Updated: {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 # ===== AUTO REFRESH =====
